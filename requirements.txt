@@ -1,0 +1,17 @@
+# Core Python Libraries
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+    
+# Model saving/loading
+joblib
+
+# Web App Framework
+streamlit
+
+# Optional (for future improvements)
+requests        # for weather API integration
+plotly          # for interactive graphs
+Flask
