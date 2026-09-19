@@ -1,10 +1,11 @@
+```groovy
 pipeline {
 
     agent any
 
     environment {
         APP_SERVER = "172.31.9.129"
-        APP_USER = "ubuntu"
+        APP_USER   = "ubuntu"
         DEPLOY_DIR = "/opt/crop-app"
     }
 
@@ -13,7 +14,13 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo 'Downloading project from GitHub...'
-                checkout scm
+
+                // Jenkins already checks out the repository
+                // No second checkout is required here.
+                sh '''
+                    echo "Project files:"
+                    ls -la
+                '''
             }
         }
 
@@ -22,7 +29,14 @@ pipeline {
                 echo 'Creating Python virtual environment...'
 
                 sh '''
+                    rm -rf venv
                     python3 -m venv venv
+
+                    echo "Python version:"
+                    venv/bin/python --version
+
+                    echo "Pip version:"
+                    venv/bin/pip --version
                 '''
             }
         }
@@ -32,9 +46,12 @@ pipeline {
                 echo 'Installing Python dependencies...'
 
                 sh '''
-                    . venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r requirements.txt
+                    venv/bin/pip install --upgrade pip
+
+                    venv/bin/pip install -r requirements.txt
+
+                    # pytest is required for CI testing
+                    venv/bin/pip install pytest
                 '''
             }
         }
@@ -44,8 +61,9 @@ pipeline {
                 echo 'Running tests...'
 
                 sh '''
-                    . venv/bin/activate
-                    pytest tests/
+                    echo "Running pytest..."
+
+                    venv/bin/pytest tests/ -v
                 '''
             }
         }
@@ -55,18 +73,30 @@ pipeline {
                 echo 'Deploying application to Flask server...'
 
                 sh '''
-                    ssh ${APP_USER}@${APP_SERVER} "
-                        mkdir -p ${DEPLOY_DIR}
-                    "
+                    echo "Creating deployment directory..."
+
+                    ssh ${APP_USER}@${APP_SERVER} \
+                        "mkdir -p ${DEPLOY_DIR}"
+
+                    echo "Copying application files..."
 
                     scp -r app \
                         ${APP_USER}@${APP_SERVER}:${DEPLOY_DIR}/
 
+                    echo "Copying models..."
+
                     scp -r models \
                         ${APP_USER}@${APP_SERVER}:${DEPLOY_DIR}/
 
+                    echo "Copying requirements.txt..."
+
                     scp requirements.txt \
                         ${APP_USER}@${APP_SERVER}:${DEPLOY_DIR}/
+
+                    echo "Deployment files copied successfully."
+
+                    ssh ${APP_USER}@${APP_SERVER} \
+                        "ls -la ${DEPLOY_DIR}"
                 '''
             }
         }
@@ -77,16 +107,25 @@ pipeline {
 
                 sh '''
                     ssh ${APP_USER}@${APP_SERVER} "
+                        set -e
+
                         cd ${DEPLOY_DIR}
+
+                        echo 'Checking Python...'
+                        python3 --version
+
+                        echo 'Checking virtual environment...'
 
                         if [ ! -d venv ]; then
                             python3 -m venv venv
                         fi
 
-                        . venv/bin/activate
+                        echo 'Installing production dependencies...'
 
-                        pip install --upgrade pip
-                        pip install -r requirements.txt
+                        venv/bin/pip install --upgrade pip
+                        venv/bin/pip install -r requirements.txt
+
+                        echo 'Production dependencies installed.'
                     "
                 '''
             }
@@ -99,6 +138,7 @@ pipeline {
                 sh '''
                     ssh ${APP_USER}@${APP_SERVER} "
                         sudo systemctl restart crop-app
+                        sudo systemctl status crop-app --no-pager
                     "
                 '''
             }
@@ -108,11 +148,18 @@ pipeline {
     post {
 
         success {
+            echo '=========================================='
             echo 'CI/CD Pipeline completed successfully!'
+            echo 'Application deployed successfully!'
+            echo '=========================================='
         }
 
         failure {
+            echo '=========================================='
             echo 'CI/CD Pipeline failed!'
+            echo 'Check the stage above for the error.'
+            echo '=========================================='
         }
     }
 }
+```
